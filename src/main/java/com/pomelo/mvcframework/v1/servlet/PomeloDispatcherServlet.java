@@ -24,6 +24,7 @@ public class PomeloDispatcherServlet extends HttpServlet {
    private Map<String ,Object> mapping = new HashMap<String , Object>();
    private Properties configContext = new Properties();
    private List<String> classNames = new ArrayList<String>();
+   private Map<String,Method> handlerMapping = new HashMap<String , Method>();
 
    @Override
    protected void doGet(HttpServletRequest req, HttpServletResponse resp) throws ServletException, IOException {
@@ -31,14 +32,33 @@ public class PomeloDispatcherServlet extends HttpServlet {
    }
    
    @Override
-   protected void doPost(HttpServletRequest req, HttpServletResponse resp) throws ServletException,IOException{
-       doDispatch(req,resp);
+   protected void doPost(HttpServletRequest req, HttpServletResponse resp) throws ServletException, IOException {
+       try {
+           doDispatch(req,resp);
+       } catch (IOException e) {
+           resp.getWriter().write("500 Exception Details:" + Arrays.toString(e.getStackTrace()));
+       } catch (Exception e) {
+           e.printStackTrace();
+       }
    }
 
-    private void doDispatch(HttpServletRequest req, HttpServletResponse resp) {
+    private void doDispatch(HttpServletRequest req, HttpServletResponse resp) throws Exception {
        String url = req.getRequestURI();
        String contextPath = req.getContextPath();
-       url = url.replace(contextPath,"").replaceAll("/+","/");
+       url = url.replaceAll(contextPath,"").replaceAll("/+","/");
+       if(!this.handlerMapping.containsKey(url)){
+           resp.getWriter().write("404 Not Found !!");
+           return ;
+       }
+
+        Method method = this.handlerMapping.get(url);
+
+        Map<String,String[]> params = req.getParameterMap();
+
+        String beanName = toLoweFirstCase(method.getDeclaringClass().getSimpleName());
+        Object a = params.get("name")[0];
+        Object b = mapping.get(beanName);
+        method.invoke(mapping.get(beanName),new Object[]{req,resp,params.get("name")[0]});
     }
 
     @Override
@@ -68,12 +88,19 @@ public class PomeloDispatcherServlet extends HttpServlet {
             Class<?> clazz = entry.getValue().getClass();
             if(!clazz.isAnnotationPresent(PomeloController.class)){continue;}
 
+            String baseUrl = "";
+            if (clazz.isAnnotationPresent(PomeloRequestMapping.class)) {
+                PomeloRequestMapping requestMapping = clazz.getAnnotation(PomeloRequestMapping.class);
+                baseUrl = requestMapping.value();
+            }
+
             Method[] methods = clazz.getMethods();
             for(Method method : methods){
-                if(!method.isAnnotationPresent(PomeloRequestParam.class)){continue;}
+                if(!method.isAnnotationPresent(PomeloRequestMapping.class)){continue;}
 
                 PomeloRequestMapping requestMapping = method.getAnnotation(PomeloRequestMapping.class);
-                requestMapping.value();
+                String url = ("/" + baseUrl + "/" + requestMapping.value()).replaceAll("/+","/");
+                handlerMapping.put(url,method);
             }
         }
 
@@ -108,7 +135,8 @@ public class PomeloDispatcherServlet extends HttpServlet {
 
     private void doScanner(String scanPackage){
        //找所有.class文件，取文件名，拿到所有className
-        URL url = this.getClass().getClassLoader().getResource("/" + scanPackage.replace("\\.","/"));
+        String str = "/" + scanPackage.replace(".","/");
+        URL url = this.getClass().getClassLoader().getResource("/" + scanPackage.replace(".","/"));
         File classDir = new File(url.getFile());
         for (File file: classDir.listFiles()) {
             if(file.isDirectory()){
@@ -117,7 +145,7 @@ public class PomeloDispatcherServlet extends HttpServlet {
                 if(!file.getName().endsWith(".class")){ continue; }
                 //TODO
                 String clazzname = scanPackage + "." + file.getName().replace(".class","");
-                mapping.put(clazzname,null);
+                classNames.add(clazzname);
             }
         }
     }

@@ -21,6 +21,7 @@ public class DemoAction {
     @PomeloAutowired
     private IDemoService demoService;
 
+    @PomeloRequestMapping("/query")
     public void query(HttpServletRequest req, HttpServletResponse resp, @PomeloRequestParam("name") String name){
         String result = demoService.get(name);
         try{
