@@ -1,4 +1,4 @@
-package com.pomelo.mvcframework.v1.servlet;
+package com.pomelo.mvcframework.v2.servlet;
 
 import com.pomelo.mvcframework.annotation.*;
 
@@ -10,6 +10,7 @@ import javax.servlet.http.HttpServletResponse;
 import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
+import java.lang.annotation.Annotation;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.net.URL;
@@ -55,10 +56,44 @@ public class PomeloDispatcherServlet extends HttpServlet {
        }
 
         Method method = this.handlerMapping.get(url);
+        //第一个参数：方法所在的实例
+        //第二个参数：调用时所需要的参数
         Map<String,String[]> params = req.getParameterMap();
+        //获取方法的形参列表
+        Class<?>[] parameterTypes = method.getParameterTypes();
+        //保存请求的url参数列表
+        Map<String,String[]> parameterMap = req.getParameterMap();
+        //保存赋值参数的位置
+        Object[] paraValues = new Object[parameterTypes.length];
+        //根据参数位置动态赋值
+        for (int i = 0; i < parameterTypes.length; i++){
+            Class parameterType = parameterTypes[i];
+            if(parameterType == HttpServletRequest.class){
+                paraValues[i] = req;
+                continue;
+            }else if(parameterType == HttpServletResponse.class){
+                paraValues[i] = resp;
+                continue;
+            }else if(parameterType == String.class){
+                //提取方法中加了注释的参数
+                Annotation[][] pa = method.getParameterAnnotations();
+                for(int j = 0; j < pa.length ; j++){
+                    for(Annotation a : pa[i]){
+                        if(a instanceof PomeloRequestParam){
+                            String paramName = ((PomeloRequestParam) a).value();
+                            if(!"".equals(paramName.trim())){
+                                String value = Arrays.toString(parameterMap.get(paramName))
+                                        .replaceAll("\\[|\\]","")
+                                        .replaceAll("\\s",",");
+                                paraValues[i] = value;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        //通过反射获取Method所在的Class,获取Class之后还要获得Class的名称
         String beanName = toLoweFirstCase(method.getDeclaringClass().getSimpleName());
-        Object a = params.get("name")[0];
-        Object b = ioc.get(beanName);
         method.invoke(ioc.get(beanName),new Object[]{req,resp,params.get("name")[0]});
     }
 
@@ -110,16 +145,19 @@ public class PomeloDispatcherServlet extends HttpServlet {
     private void doAutowired() {
        if(ioc.isEmpty()){return;}
        for (Map.Entry<String,Object> entry: ioc.entrySet()) {
+           //获取所有i终端，正常来说普通的OOP只能获取public类型的字段
            Field[] fields = entry.getValue().getClass().getDeclaredFields();
            for (Field field: fields) {
                if(!field.isAnnotationPresent(PomeloAutowired.class)){continue;}
 
                PomeloAutowired autowired = field.getAnnotation(PomeloAutowired.class);
+               //如果用户没有自定义beanName，默认就根据类型注入
                String beanName = autowired.value().trim();
                if("".equals(beanName)){
+                   //获得接口类型，作为key用这个key到ioc容器中取值
                    beanName = field.getType().getName();
                }
-
+               //如果是public以外的类型，之哟啊加了@Autowired注解都要强制赋值，暴力访问
                field.setAccessible(true);
 
                try {
@@ -144,7 +182,6 @@ public class PomeloDispatcherServlet extends HttpServlet {
                 doScanner(scanPackage + "." + file.getName());
             }else {
                 if(!file.getName().endsWith(".class")){ continue; }
-                //TODO
                 String clazzname = scanPackage + "." + file.getName().replace(".class","");
                 classNames.add(clazzname);
             }
@@ -152,9 +189,9 @@ public class PomeloDispatcherServlet extends HttpServlet {
     }
 
     private void doLoadConfig(String contextConfigLocation)  {
-        InputStream is = null;
+        //直接通过类路径找到Srping主配置文件所在路径
+        InputStream is = this.getClass().getClassLoader().getResourceAsStream(contextConfigLocation);
         try{
-            is = this.getClass().getResourceAsStream(contextConfigLocation);
             this.configContext.load(is);
         }catch (IOException e){
             e.printStackTrace();
@@ -171,7 +208,6 @@ public class PomeloDispatcherServlet extends HttpServlet {
 
     private void doInstance(){
         if(classNames.isEmpty()){return;}
-
         try{
             for(String className : classNames){
                 Class<?> clazz = Class.forName(className);

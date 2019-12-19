@@ -6,7 +6,7 @@
   <display-name> Created Pomelo Web Application</display-name>
   <servlet>
     <servlet-name>pomelomvc</servlet-name>
-    <servlet-class>com.pomelo.mvcframework.v1.servlet.PomeloDispatcherServlet</servlet-class>
+    <servlet-class>com.pomelo.mvcframework.v2.servlet.PomeloDispatcherServlet</servlet-class>
     <init-param>
       <param-name>contextConfigLocation</param-name>
       <param-value>/application.properties</param-value>
